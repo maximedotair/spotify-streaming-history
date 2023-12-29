@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spotify History Viewer</title>
+<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.1.4/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+<div class="container mx-auto p-4">
+  <h1 class="text-2xl font-bold mb-4">Spotify Streaming History</h1>
+  <input type="file" id="file-input" multiple accept=".json" onchange="loadFiles(event)" class="mb-4 form-input px-4 py-3 rounded-lg">
+
+  <!-- Tab buttons -->
+  <div class="mb-4">
+    <button id="tab-history" onclick="switchTab('history')" class="px-4 py-2 bg-blue-500 text-white mr-2">History by Date</button>
+    <button id="tab-mostPlayed" onclick="switchTab('mostPlayed')" class="px-4 py-2 bg-blue-500 text-white">Most Played</button>
+  </div>
+
+  <!-- Filters -->
+  <div id="filters" class="mb-4">
+    <label for="yearFilter" class="mr-2">Year:</label>
+    <select id="yearFilter" onchange="filterData()" class="mr-4 form-select px-4 py-3 rounded-lg">
+      <!-- Year options will be added here -->
+    </select>
+    <label for="monthFilter" class="mr-2">Month:</label>
+    <select id="monthFilter" onchange="filterData()" class="form-select px-4 py-3 rounded-lg">
+      <option value="">All Months</option>
+      <!-- Month options will be added here -->
+    </select>
+  </div>
+
+  <!-- Data Table -->
+  <div id="data-table" class="mb-4"></div>
+
+  <!-- Pagination -->
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<script>
+let jsonData = [];
+let currentPage = 1;
+const recordsPerPage = 100;
+let currentTab = 'history'; // Possible values: 'history', 'mostPlayed'
+
+// Load files and read JSON data, filtering out any N/A entries
+function loadFiles(event) {
+  const files = event.target.files;
+  jsonData = []; // Reset previous data
+  let filesRead = 0;
+
+  Array.from(files).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const data = JSON.parse(e.target.result);
+      // Filter out entries where the title or artist is 'N/A'
+      const validData = data.filter(item => item.master_metadata_track_name !== 'N/A' && item.master_metadata_album_artist_name !== 'N/A');
+      jsonData = jsonData.concat(validData);
+      filesRead++;
+
+      if (filesRead === files.length) {
+        document.getElementById('filters').style.display = 'flex'; // Show filters
+        initializeFilters();
+        filterData(); // Apply initial filters (if any) and render data
+      }
+    };
+    reader.readAsText(file);
+  });
+}
+// Initialize year and month filters based on data
+function initializeFilters() {
+  const yearSet = new Set();
+  jsonData.forEach(item => {
+    const date = new Date(item.ts);
+    yearSet.add(date.getFullYear());
+  });
+
+  const yearFilter = document.getElementById('yearFilter');
+  yearFilter.innerHTML = '<option value="">All Years</option>';
+  Array.from(yearSet).sort().forEach(year => {
+    const option = document.createElement('option');
+    option.value = year;
+    option.textContent = year;
+    yearFilter.appendChild(option);
+  });
+
+  // Initialize month options
+  const monthFilter = document.getElementById('monthFilter');
+  for (let i = 1; i <= 12; i++) {
+    const option = document.createElement('option');
+    option.value = i;
+    option.textContent = i < 10 ? `0${i}` : i; // Display months as '01', '02', etc.
+    monthFilter.appendChild(option);
+  }
+}
+
+// Calculate total plays for each track
+function calculateTotalPlays() {
+  totalPlays = {}; // Reset total plays
+  filteredData.forEach(item => {  // Make sure to use filteredData here, not jsonData
+    const trackKey = item.master_metadata_track_name + item.master_metadata_album_artist_name;
+    totalPlays[trackKey] = (totalPlays[trackKey] || 0) + 1; // Increment play count
+  });
+}
+
+// Filter data based on selected year, month, and tab
+function filterData() {
+  const year = document.getElementById('yearFilter').value;
+  const month = document.getElementById('monthFilter').value;
+  filteredData = jsonData.filter(item => {
+    const date = new Date(item.ts);
+    const itemYear = date.getFullYear();
+    const itemMonth = date.getMonth() + 1; // getMonth() is zero-based
+    return (year ? itemYear === parseInt(year) : true) && (month ? itemMonth === parseInt(month) : true);
+  });
+  filteredData = filteredData.filter(item => item.master_metadata_track_name && item.master_metadata_album_artist_name);
+  
+  calculateTotalPlays(); // Update total plays based on the current filter
+
+  if (currentTab === 'mostPlayed') {
+    // Consolidate plays by track
+    const playsByTrack = {};
+    filteredData.forEach(item => {
+      const key = item.master_metadata_track_name + item.master_metadata_album_artist_name;
+      if (!playsByTrack[key]) {
+        playsByTrack[key] = { ...item, count: totalPlays[key] || 0 };
+      }
+    });
+
+    // Convert to array and sort by play count
+    filteredData = Object.values(playsByTrack).sort((a, b) => b.count - a.count);
+  }
+
+  currentPage = 1; // Reset to the first page
+  renderData();
+}function renderData() {
+  const start = (currentPage - 1) * recordsPerPage;
+  const end = start + recordsPerPage;
+  const paginatedData = filteredData.slice(start, end);
+  const tableDiv = document.getElementById('data-table');
+  tableDiv.innerHTML = '';
+
+  // Create and populate the table
+  let table = `<table class="table-auto w-full mb-4"><thead class="bg-blue-200"><tr>`;
+  table += `<th class="px-4 py-2">Date</th>`;
+  table += `<th class="px-4 py-2">Title</th>`;
+  table += `<th class="px-4 py-2">Artist</th>`;
+  table += `<th class="px-4 py-2">Link</th>`;
+  if (currentTab === 'mostPlayed') {
+    table += `<th class="px-4 py-2">Total Plays</th>`;
+  }
+  table += `</tr></thead><tbody>`;
+
+  paginatedData.forEach(item => {
+    if (item.master_metadata_track_name && item.master_metadata_album_artist_name) {
+   
+    table += `<tr>`;
+    table += `<td class="border px-4 py-2">${new Date(item.ts).toLocaleString()}</td>`;
+    table += `<td class="border px-4 py-2">${item.master_metadata_track_name || 'N/A'}</td>`;
+    table += `<td class="border px-4 py-2">${item.master_metadata_album_artist_name || 'N/A'}</td>`;
+    table += `<td class="border px-4 py-2"><a href="${item.spotify_track_uri}" target="_blank" class="text-blue-500">Listen on Spotify</a></td>`;
+    if (currentTab === 'mostPlayed') {
+      const trackKey = item.master_metadata_track_name + item.master_metadata_album_artist_name;
+      table += `<td class="border px-4 py-2">${totalPlays[trackKey] || '0'}</td>`;
+    }
+    table += `</tr>`;
+  }
+  });
+
+  table += `</tbody></table>`;
+  tableDiv.innerHTML = table;
+
+  renderPagination();
+}
+
+// Create and display pagination buttons
+function renderPagination() {
+  const pageCount = Math.ceil(filteredData.length / recordsPerPage);
+  const paginationContainer = document.getElementById('pagination');
+  paginationContainer.innerHTML = '';
+
+  for (let i = 1; i <= pageCount; i++) {
+    const button = document.createElement('button');
+    button.textContent = i;
+    button.className = "px-4 py-2 bg-blue-200 rounded-lg mr-2";
+    button.onclick = function() {
+      currentPage = i;
+      renderData(i);
+    };
+    paginationContainer.appendChild(button);
+  }
+}
+
+// Switch between tabs
+function switchTab(tab) {
+  currentTab = tab;
+  // Highlight the active tab
+  document.getElementById('tab-history').className = tab === 'history' ? 'px-4 py-2 bg-blue-500 text-white mr-2' : 'px-4 py-2 bg-blue-200 text-blue-800 mr-2';
+  document.getElementById('tab-mostPlayed').className = tab === 'mostPlayed' ? 'px-4 py-2 bg-blue-500 text-white' : 'px-4 py-2 bg-blue-200 text-blue-800';
+  filterData(); // Refilter data based on the new tab
+}
+
+// Initialize the app
+function init() {
+  document.getElementById('filters').style.display = 'none'; // Hide filters initially
+}
+
+init();
+</script>
+</body>
+</html>
